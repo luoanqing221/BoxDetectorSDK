@@ -14,38 +14,51 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Setup Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
-
-    - name: Install Python Dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install ultralytics onnx opencv-python-headless
-
     - name: Download OpenCV
       run: |
-        Invoke-WebRequest -Uri "https://github.com/opencv/opencv/releases/download/4.9.0/opencv-4.9.0-windows.exe" -OutFile "opencv.exe"
+        Write-Host "Downloading OpenCV..."
+        Invoke-WebRequest -Uri "https://github.com/opencv/opencv/releases/download/4.9.0/opencv-4.9.0-windows.exe" -OutFile "opencv.exe" -UseBasicParsing
+        Write-Host "Installing OpenCV..."
         Start-Process -FilePath "opencv.exe" -ArgumentList "-oC:\opencv -y" -Wait
+        Write-Host "OpenCV installed, listing files..."
+        Get-ChildItem -Path "C:\opencv" -Recurse | Select-Object FullName
 
     - name: Download ONNX Runtime
       run: |
-        Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v1.17.0/onnxruntime-win-x64-1.17.0.zip" -OutFile "onnxruntime.zip"
-        Expand-Archive -Path "onnxruntime.zip" -DestinationPath "C:\"
+        Write-Host "Downloading ONNX Runtime..."
+        Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v1.17.0/onnxruntime-win-x64-1.17.0.zip" -OutFile "onnxruntime.zip" -UseBasicParsing
+        Write-Host "Extracting ONNX Runtime..."
+        Expand-Archive -Path "onnxruntime.zip" -DestinationPath "C:\" -Force
+        Write-Host "ONNX Runtime extracted, listing files..."
+        Get-ChildItem -Path "C:\onnxruntime-win-x64-1.17.0" -Recurse | Select-Object FullName
+
+    - name: Find OpenCV Config
+      run: |
+        Write-Host "Looking for OpenCVConfig.cmake..."
+        Get-ChildItem -Path "C:\opencv" -Recurse -Filter "OpenCVConfig.cmake" | Select-Object FullName
+
+    - name: Find ONNX Runtime Config
+      run: |
+        Write-Host "Looking for ONNX Runtime cmake files..."
+        Get-ChildItem -Path "C:\onnxruntime-win-x64-1.17.0" -Recurse -Filter "*.cmake" | Select-Object FullName
 
     - name: Configure CMake
       run: |
-        mkdir build
+        Write-Host "Creating build directory..."
+        mkdir -p build
         cd build
+        Write-Host "Running CMake..."
         cmake -G "Visual Studio 17 2022" -A x64 .. `
-          -DOpenCV_DIR="C:/opencv/build/x64/vc16/lib" `
-          -DONNXRuntime_DIR="C:/onnxruntime-win-x64-1.17.0/lib/cmake/onnxruntime"
+          -DOpenCV_DIR="C:\opencv\build\x64\vc16\lib" `
+          -DONNXRuntime_DIR="C:\onnxruntime-win-x64-1.17.0\lib\cmake\onnxruntime" `
+          -DCMAKE_VERBOSE_MAKEFILE=ON
+      continue-on-error: false
 
     - name: Build
       run: |
         cd build
-        cmake --build . --config Release
+        Write-Host "Building..."
+        cmake --build . --config Release --verbose
 
     - name: Prepare Distribution
       run: |
@@ -53,13 +66,20 @@ jobs:
         mkdir -p dist/lib
         mkdir -p dist/include
         
-        Copy-Item build/Release/BoxDetectorSDK.dll dist/bin/
-        Copy-Item build/Release/BoxDetectorSDK.lib dist/lib/
-        Copy-Item BoxDetectorSDK.h dist/include/
-        Copy-Item C:/opencv/build/x64/vc16/bin/opencv_world490.dll dist/bin/
-        Copy-Item C:/onnxruntime-win-x64-1.17.0/lib/onnxruntime.dll dist/bin/
-        Copy-Item dist/README.md dist/
-        Copy-Item dist/BoxDetectorSDK.cs dist/
+        Copy-Item "build\Release\BoxDetectorSDK.dll" dist/bin/ -ErrorAction SilentlyContinue
+        Copy-Item "build\Release\BoxDetectorSDK.lib" dist/lib/ -ErrorAction SilentlyContinue
+        Copy-Item "BoxDetectorSDK.h" dist/include/
+        Copy-Item "C:\opencv\build\x64\vc16\bin\opencv_world490.dll" dist/bin/ -ErrorAction SilentlyContinue
+        Copy-Item "C:\onnxruntime-win-x64-1.17.0\lib\onnxruntime.dll" dist/bin/ -ErrorAction SilentlyContinue
+        Copy-Item "BoxDetectorSDK.cs" dist/
+        Copy-Item "README.md" dist/
+
+    - name: List Build Output
+      run: |
+        Write-Host "Build directory contents:"
+        Get-ChildItem -Path "build" -Recurse | Select-Object FullName, Length
+        Write-Host "Dist directory contents:"
+        Get-ChildItem -Path "dist" -Recurse | Select-Object FullName, Length
 
     - name: Create Archive
       run: |

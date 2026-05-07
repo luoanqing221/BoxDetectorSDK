@@ -11,8 +11,8 @@ else()
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
 endif()
 
-find_package(OpenCV REQUIRED)
-find_package(ONNXRuntime REQUIRED)
+find_package(OpenCV REQUIRED PATHS "C:/opencv/build")
+find_package(ONNXRuntime REQUIRED PATHS "C:/onnxruntime-win-x64-1.17.0")
 
 message(STATUS "OpenCV found: ${OpenCV_INCLUDE_DIRS}")
 message(STATUS "ONNX Runtime found: ${ONNXRuntime_INCLUDE_DIRS}")

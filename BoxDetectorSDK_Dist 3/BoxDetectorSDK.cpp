@@ -49,7 +49,7 @@ public:
 
     InferenceEngine() {
         session_options.SetIntraOpNumThreads(1);
-        session_options.SetGraphOptimizationLevel(static_cast<OrtGraphOptimizationLevel>(1));
+        session_options.SetGraphOptimizationLevel(Ort::GraphOptimizationLevel::ORT_ENABLE_BASIC);
     }
 
     bool LoadModel(const std::string& modelPath) {
