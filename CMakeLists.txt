@@ -11,13 +11,14 @@ else()
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
 endif()
 
-set(OpenCV_DIR "C:/deps/opencv/build/x64/vc16/lib" CACHE PATH "OpenCV directory")
+set(OpenCV_DIR "C:/opencv/build/x64/vc16/lib" CACHE PATH "OpenCV directory")
 find_package(OpenCV REQUIRED)
 
-set(ONNXRUNTIME_INCLUDE_DIR "C:/deps/onnxruntime-win-x64-1.17.0/include" CACHE PATH "ONNX Runtime include directory")
-set(ONNXRUNTIME_LIB_DIR "C:/deps/onnxruntime-win-x64-1.17.0/lib" CACHE PATH "ONNX Runtime lib directory")
+set(ONNXRUNTIME_INCLUDE_DIR "C:/onnxruntime/include" CACHE PATH "ONNX Runtime include directory")
+set(ONNXRUNTIME_LIB_DIR "C:/onnxruntime/lib" CACHE PATH "ONNX Runtime lib directory")
 
 message(STATUS "OpenCV found: ${OpenCV_INCLUDE_DIRS}")
+message(STATUS "OpenCV libs: ${OpenCV_LIBS}")
 message(STATUS "ONNX Runtime include: ${ONNXRUNTIME_INCLUDE_DIR}")
 message(STATUS "ONNX Runtime lib: ${ONNXRUNTIME_LIB_DIR}")
 
@@ -40,6 +41,14 @@ target_link_libraries(BoxDetectorSDK PRIVATE
     ${OpenCV_LIBS}
     ${ONNXRUNTIME_LIB_DIR}/onnxruntime.lib
 )
+
+install(TARGETS BoxDetectorSDK
+    RUNTIME DESTINATION bin
+    LIBRARY DESTINATION lib
+    ARCHIVE DESTINATION lib
+)
+
+install(FILES BoxDetectorSDK.h DESTINATION include)
 
 add_executable(BoxDetectorExample
     BoxDetectorExample.cpp

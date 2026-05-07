@@ -4,14 +4,43 @@ import os
 import json
 import time
 import argparse
+from typing import List, Dict, Optional
 
-def detect(model_path, image_path, confidence=0.5, output_dir=""):
-    start_time = time.time()
+_model_cache = {}
+
+def load_model(model_path: str) -> bool:
+    """加载模型到缓存"""
+    global _model_cache
     
     if not os.path.exists(model_path):
+        return False
+    
+    try:
+        from ultralytics import YOLO
+        _model_cache['model'] = YOLO(model_path)
+        _model_cache['path'] = model_path
+        return True
+    except Exception as e:
+        print(f"模型加载失败: {e}", file=sys.stderr)
+        return False
+
+def unload_model():
+    """卸载模型"""
+    global _model_cache
+    _model_cache.clear()
+
+def is_model_loaded() -> bool:
+    """检查模型是否已加载"""
+    return 'model' in _model_cache
+
+def detect_single(image_path: str, confidence: float = 0.5, output_dir: str = "") -> Dict:
+    """检测单张图片"""
+    start_time = time.time()
+    
+    if not is_model_loaded():
         return {
             "success": False,
-            "error": f"模型文件不存在: {model_path}",
+            "error": "模型未加载，请先调用 load_model()",
             "imageWidth": 0,
             "imageHeight": 0,
             "boxes": [],
@@ -34,9 +63,8 @@ def detect(model_path, image_path, confidence=0.5, output_dir=""):
     
     try:
         import cv2
-        from ultralytics import YOLO
         
-        model = YOLO(model_path)
+        model = _model_cache['model']
         results = model.predict(image_path, conf=confidence, verbose=False)
         
         boxes_info = []
@@ -77,7 +105,10 @@ def detect(model_path, image_path, confidence=0.5, output_dir=""):
                 cv2.putText(result_img, label, (x, max(0, y - 10)),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
             
-            filename = "analyzed_" + os.path.basename(image_path)
+            base_name = os.path.splitext(os.path.basename(image_path))[0]
+            ext = os.path.splitext(image_path)[1]
+            timestamp = int(time.time())
+            filename = f"{base_name}_detected_{len(boxes_info)}_boxes_{timestamp}{ext}"
             result_image_path = os.path.abspath(os.path.join(output_dir, filename))
             cv2.imwrite(result_image_path, result_img)
         
@@ -107,17 +138,50 @@ def detect(model_path, image_path, confidence=0.5, output_dir=""):
             "imagePath": image_path
         }
 
+def batch_detect(image_paths: List[str], confidence: float = 0.5, output_dir: str = "") -> List[Dict]:
+    """批量检测多张图片"""
+    results = []
+    for image_path in image_paths:
+        result = detect_single(image_path, confidence, output_dir)
+        results.append(result)
+    return results
+
 def main():
-    parser = argparse.ArgumentParser(description='Box Detector CLI')
-    parser.add_argument('--model', required=True, help='Model path (.pt or .onnx)')
-    parser.add_argument('--image', required=True, help='Image path')
-    parser.add_argument('--confidence', type=float, default=0.5, help='Confidence threshold')
-    parser.add_argument('--output', default='', help='Output directory')
+    parser = argparse.ArgumentParser(description='Box Detector CLI - 模拟C++接口')
+    parser.add_argument('--model', required=True, help='模型路径 (.pt 或 .onnx)')
+    parser.add_argument('--images', required=True, nargs='+', help='图片路径列表（支持多张）')
+    parser.add_argument('--confidence', type=float, default=0.5, help='置信度阈值 (默认: 0.5)')
+    parser.add_argument('--output', default='', help='输出目录（为空则不保存结果图）')
     
     args = parser.parse_args()
     
-    result = detect(args.model, args.image, args.confidence, args.output)
-    print(json.dumps(result))
+    load_start = time.time()
+    if not load_model(args.model):
+        result = {
+            "success": False,
+            "error": f"模型加载失败: {args.model}",
+            "imageWidth": 0,
+            "imageHeight": 0,
+            "boxes": [],
+            "resultImagePath": "",
+            "analysisTimeMs": 0,
+            "imagePath": ""
+        }
+        print(json.dumps([result]))
+        return
+    
+    load_time = (time.time() - load_start) * 1000
+    
+    results = batch_detect(args.images, args.confidence, args.output)
+    
+    output = {
+        "modelLoadTimeMs": round(load_time, 2),
+        "results": results
+    }
+    
+    print(json.dumps(output, indent=2, ensure_ascii=False))
+    
+    unload_model()
 
 if __name__ == '__main__':
     main()

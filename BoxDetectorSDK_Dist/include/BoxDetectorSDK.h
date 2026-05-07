@@ -47,6 +47,16 @@ public:
     BoxDetector();
     ~BoxDetector();
 
+    static bool LoadModel(const std::string& modelPath);
+    
+    static void UnloadModel();
+    
+    static bool IsModelLoaded();
+
+    static AnalyzeResult Detect(const std::string& imagePath, 
+                                float confidence = 0.5f, 
+                                const std::string& outputDir = "");
+
     static AnalyzeResult Analyze(const std::string& modelPath, const std::string& imagePath, 
                                   float confidence = 0.5f, const std::string& outputDir = "");
 
@@ -57,6 +67,10 @@ public:
                                                     const std::vector<std::string>& imagePaths,
                                                     float confidence = 0.5f, 
                                                     const std::string& outputDir = "");
+
+    static std::vector<AnalyzeResult> BatchDetect(const std::vector<std::string>& imagePaths,
+                                                   float confidence = 0.5f,
+                                                   const std::string& outputDir = "");
 
 private:
     class Impl;

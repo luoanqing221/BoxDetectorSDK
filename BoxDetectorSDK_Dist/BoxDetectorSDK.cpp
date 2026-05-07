@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cstring>
 #include <sstream>
+#include <mutex>
 
 #ifdef _WIN32
     #define EXPORT extern "C" __declspec(dllexport)
@@ -46,6 +47,7 @@ public:
     std::unique_ptr<Ort::Session> session = nullptr;
     Ort::SessionOptions session_options;
     std::vector<int64_t> input_shape;
+    bool isLoaded = false;
 
     InferenceEngine() {
         session_options.SetIntraOpNumThreads(1);
@@ -59,6 +61,7 @@ public:
             Ort::TypeInfo input_type_info = session->GetInputTypeInfo(0);
             auto input_tensor_info = input_type_info.GetTensorTypeAndShapeInfo();
             input_shape = input_tensor_info.GetShape();
+            isLoaded = true;
             return true;
         } catch (const Ort::Exception&) {
             return false;
@@ -139,6 +142,10 @@ public:
     }
 };
 
+static std::unique_ptr<InferenceEngine> g_engine = nullptr;
+static std::mutex g_engine_mutex;
+static std::string g_current_model_path;
+
 char* strdup_c(const char* str) {
     if (!str) return nullptr;
     size_t len = strlen(str) + 1;
@@ -170,17 +177,42 @@ void FreeNativeResult(NativeAnalyzeResult* result) {
     delete result;
 }
 
+EXPORT bool LoadModel(const char* modelPath) {
+    std::lock_guard<std::mutex> lock(g_engine_mutex);
+    
+    if (!modelPath || !fs::exists(modelPath)) {
+        return false;
+    }
+
+    if (g_engine && g_current_model_path == modelPath && g_engine->isLoaded) {
+        return true;
+    }
+
+    g_engine = std::make_unique<InferenceEngine>();
+    bool success = g_engine->LoadModel(modelPath);
+    if (success) {
+        g_current_model_path = modelPath;
+    }
+    return success;
+}
+
+EXPORT void UnloadModel() {
+    std::lock_guard<std::mutex> lock(g_engine_mutex);
+    g_engine.reset();
+    g_current_model_path.clear();
+}
+
+EXPORT bool IsModelLoaded() {
+    std::lock_guard<std::mutex> lock(g_engine_mutex);
+    return g_engine != nullptr && g_engine->isLoaded;
+}
+
 EXPORT NativeAnalyzeResult* Analyze(const char* modelPath, const char* imagePath,
                                      float confidence, const char* outputDir) {
     NativeAnalyzeResult* result = CreateNativeResult();
 
     if (!modelPath || !imagePath) {
         result->error = strdup_c("参数为空");
-        return result;
-    }
-
-    if (!fs::exists(modelPath)) {
-        result->error = strdup_c("模型文件不存在");
         return result;
     }
 
@@ -201,13 +233,26 @@ EXPORT NativeAnalyzeResult* Analyze(const char* modelPath, const char* imagePath
     result->imageHeight = image.rows;
     result->imagePath = strdup_c(imagePath);
 
-    InferenceEngine engine;
-    if (!engine.LoadModel(modelPath)) {
-        result->error = strdup_c("加载模型失败");
-        return result;
+    {
+        std::lock_guard<std::mutex> lock(g_engine_mutex);
+        
+        if (!g_engine || !g_engine->isLoaded || g_current_model_path != modelPath) {
+            g_engine = std::make_unique<InferenceEngine>();
+            if (!g_engine->LoadModel(modelPath)) {
+                result->error = strdup_c("加载模型失败");
+                return result;
+            }
+            g_current_model_path = modelPath;
+        }
     }
 
-    std::vector<NativeBoxInfo> boxes = engine.RunInference(image, confidence);
+    std::vector<NativeBoxInfo> boxes;
+    {
+        std::lock_guard<std::mutex> lock(g_engine_mutex);
+        if (g_engine && g_engine->isLoaded) {
+            boxes = g_engine->RunInference(image, confidence);
+        }
+    }
 
     result->boxesCount = static_cast<int>(boxes.size());
     if (result->boxesCount > 0) {
@@ -251,64 +296,214 @@ EXPORT NativeAnalyzeResult* Analyze(const char* modelPath, const char* imagePath
     return result;
 }
 
-EXPORT void FreeResult(NativeAnalyzeResult* result) {
-    FreeNativeResult(result);
-}
-
-BoxDetector::BoxDetector() {}
-BoxDetector::~BoxDetector() {}
-
-AnalyzeResult BoxDetector::Analyze(const std::string& modelPath, const std::string& imagePath,
-                                    float confidence, const std::string& outputDir) {
-    AnalyzeResult result;
-    result.success = false;
-
-    NativeAnalyzeResult* native = ::Analyze(modelPath.c_str(), imagePath.c_str(),
-                                             confidence, outputDir.c_str());
-
-    if (!native) {
-        result.error = "调用失败";
-        return result;
-    }
-
-    try {
-        result.success = native->success;
-        result.error = native->error ? native->error : "";
-        result.imageWidth = native->imageWidth;
-        result.imageHeight = native->imageHeight;
-        result.resultImagePath = native->resultImagePath ? native->resultImagePath : "";
-        result.analysisTimeMs = native->analysisTimeMs;
-        result.imagePath = native->imagePath ? native->imagePath : "";
-
-        for (int i = 0; i < native->boxesCount; ++i) {
-            const auto& box = native->boxes[i];
-            result.boxes.emplace_back(box.index, box.x, box.y,
-                                      box.width, box.height, box.confidence);
-        }
-    } catch (...) {
-        FreeResult(native);
-        throw;
-    }
-    FreeResult(native);
-
-    return result;
-}
-
-AnalyzeResult BoxDetector::AnalyzeAsync(const std::string& modelPath, const std::string& imagePath,
-                                        float confidence, const std::string& outputDir) {
-    auto future = std::async(std::launch::async, Analyze, modelPath, imagePath, confidence, outputDir);
+EXPORT NativeAnalyzeResult* AnalyzeAsync(const char* modelPath, const char* imagePath,
+                                          float confidence, const char* outputDir) {
+    auto future = std::async(std::launch::async, [=]() {
+        return Analyze(modelPath, imagePath, confidence, outputDir);
+    });
     return future.get();
 }
 
-std::vector<AnalyzeResult> BoxDetector::BatchAnalyze(const std::string& modelPath,
-                                                      const std::vector<std::string>& imagePaths,
-                                                      float confidence,
-                                                      const std::string& outputDir) {
-    std::vector<AnalyzeResult> results;
-    for (const auto& imagePath : imagePaths) {
-        results.push_back(Analyze(modelPath, imagePath, confidence, outputDir));
+EXPORT int BatchAnalyze(const char* modelPath, const char** imagePaths, int count,
+                        float confidence, const char* outputDir,
+                        NativeAnalyzeResult** results) {
+    if (!modelPath || !imagePaths || count <= 0 || !results) {
+        return -1;
     }
-    return results;
+
+    if (!LoadModel(modelPath)) {
+        return -2;
+    }
+
+    for (int i = 0; i < count; ++i) {
+        results[i] = Analyze(modelPath, imagePaths[i], confidence, outputDir);
+    }
+
+    return 0;
 }
 
-} // namespace BoxDetectorSDK
+EXPORT NativeAnalyzeResult* Detect(const char* imagePath, float confidence, const char* outputDir) {
+    NativeAnalyzeResult* result = CreateNativeResult();
+
+    if (!imagePath) {
+        result->error = strdup_c("参数为空");
+        return result;
+    }
+
+    if (!fs::exists(imagePath)) {
+        result->error = strdup_c("图片文件不存在");
+        return result;
+    }
+
+    std::lock_guard<std::mutex> lock(g_engine_mutex);
+    
+    if (!g_engine || !g_engine->isLoaded) {
+        result->error = strdup_c("模型未加载，请先调用 LoadModel");
+        return result;
+    }
+
+    auto start_time = std::chrono::high_resolution_clock::now();
+
+    cv::Mat image = cv::imread(imagePath);
+    if (image.empty()) {
+        result->error = strdup_c("无法读取图片");
+        return result;
+    }
+
+    result->imageWidth = image.cols;
+    result->imageHeight = image.rows;
+    result->imagePath = strdup_c(imagePath);
+
+    std::vector<NativeBoxInfo> boxes = g_engine->RunInference(image, confidence);
+
+    result->boxesCount = static_cast<int>(boxes.size());
+    if (result->boxesCount > 0) {
+        result->boxes = new NativeBoxInfo[result->boxesCount];
+        for (int i = 0; i < result->boxesCount; ++i) {
+            result->boxes[i] = boxes[i];
+        }
+    }
+
+    bool needSave = (outputDir != nullptr && outputDir[0] != '\0');
+    
+    if (needSave) {
+        std::string out_dir = outputDir;
+        std::string filename = fs::path(imagePath).stem().string() + 
+                              "_detected_" + std::to_string(boxes.size()) + 
+                              "_boxes_" + std::to_string(std::time(nullptr)) + 
+                              fs::path(imagePath).extension().string();
+        std::string result_path = (fs::path(out_dir) / filename).string();
+        result->resultImagePath = strdup_c(result_path.c_str());
+
+        // 使用线程池执行绘制和保存
+        cv::Mat draw_image = image.clone();
+        std::vector<NativeBoxInfo> boxes_copy = boxes;
+        
+        g_threadPool.enqueue([draw_image, boxes_copy, result_path, out_dir]() {
+            fs::create_directories(out_dir);
+            
+            cv::Mat result_image = draw_image.clone();
+            cv::Scalar blue_color(74, 144, 217);
+
+            for (const auto& box : boxes_copy) {
+                int x1 = static_cast<int>(box.x);
+                int y1 = static_cast<int>(box.y);
+                int x2 = static_cast<int>(box.x + box.width);
+                int y2 = static_cast<int>(box.y + box.height);
+
+                cv::rectangle(result_image, cv::Point(x1, y1), cv::Point(x2, y2), blue_color, 2);
+
+                std::stringstream ss;
+                ss << "W=" << static_cast<int>(box.width) << ", H=" << static_cast<int>(box.height);
+                std::string label = ss.str();
+                int label_y = std::max(0, y1 - 10);
+                cv::putText(result_image, label, cv::Point(x1, label_y),
+                            cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 255), 1);
+            }
+            
+            cv::imwrite(result_path, result_image);
+        });
+    } else {
+        result->resultImagePath = nullptr;
+    }
+
+    auto end_time = std::chrono::high_resolution_clock::now();
+    result->analysisTimeMs = std::chrono::duration<double, std::milli>(end_time - start_time).count();
+
+    result->success = true;
+    return result;
+}
+
+EXPORT int BatchDetect(const char** imagePaths, int count, float confidence, 
+                       const char* outputDir, NativeAnalyzeResult** results) {
+    if (!imagePaths || count <= 0 || !results) {
+        return -1;
+    }
+
+    std::lock_guard<std::mutex> lock(g_engine_mutex);
+    
+    if (!g_engine || !g_engine->isLoaded) {
+        return -2;
+    }
+
+    bool needSave = (outputDir != nullptr && outputDir[0] != '\0');
+
+    for (int i = 0; i < count; ++i) {
+        const char* imagePath = imagePaths[i];
+        NativeAnalyzeResult* result = CreateNativeResult();
+
+        if (!imagePath || !fs::exists(imagePath)) {
+            result->error = strdup_c("图片不存在");
+            results[i] = result;
+            continue;
+        }
+
+        cv::Mat image = cv::imread(imagePath);
+        if (image.empty()) {
+            result->error = strdup_c("无法读取图片");
+            results[i] = result;
+            continue;
+        }
+
+        result->imageWidth = image.cols;
+        result->imageHeight = image.rows;
+        result->imagePath = strdup_c(imagePath);
+
+        std::vector<NativeBoxInfo> boxes = g_engine->RunInference(image, confidence);
+
+        result->boxesCount = static_cast<int>(boxes.size());
+        if (result->boxesCount > 0) {
+            result->boxes = new NativeBoxInfo[result->boxesCount];
+            for (int j = 0; j < result->boxesCount; ++j) {
+                result->boxes[j] = boxes[j];
+            }
+        }
+
+        if (needSave) {
+            std::string out_dir = outputDir;
+            std::string filename = fs::path(imagePath).stem().string() + 
+                                  "_detected_" + std::to_string(boxes.size()) + 
+                                  "_boxes_" + std::to_string(std::time(nullptr)) + 
+                                  fs::path(imagePath).extension().string();
+            std::string result_path = (fs::path(out_dir) / filename).string();
+            result->resultImagePath = strdup_c(result_path.c_str());
+
+            cv::Mat draw_image = image.clone();
+            std::vector<NativeBoxInfo> boxes_copy = boxes;
+            
+            g_threadPool.enqueue([draw_image, boxes_copy, result_path, out_dir]() {
+                fs::create_directories(out_dir);
+                
+                cv::Mat result_image = draw_image.clone();
+                cv::Scalar blue_color(74, 144, 217);
+
+                for (const auto& box : boxes_copy) {
+                    int x1 = static_cast<int>(box.x);
+                    int y1 = static_cast<int>(box.y);
+                    int x2 = static_cast<int>(box.x + box.width);
+                    int y2 = static_cast<int>(box.y + box.height);
+
+                    cv::rectangle(result_image, cv::Point(x1, y1), cv::Point(x2, y2), blue_color, 2);
+
+                    std::stringstream ss;
+                    ss << "W=" << static_cast<int>(box.width) << ", H=" << static_cast<int>(box.height);
+                    std::string label = ss.str();
+                    int label_y = std::max(0, y1 - 10);
+                    cv::putText(result_image, label, cv::Point(x1, label_y),
+                                cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 255), 1);
+                }
+                
+                cv::imwrite(result_path, result_image);
+            });
+        } else {
+            result->resultImagePath = nullptr;
+        }
+
+        result->success = true;
+        results[i] = result;
+    }
+
+    return 0;
+}
+
+}

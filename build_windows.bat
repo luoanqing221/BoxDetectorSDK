@@ -17,13 +17,18 @@ if not exist "%BUILD_DIR%" (
 cd "%BUILD_DIR%"
 
 echo Configuring CMake...
-cmake -G "%CMAKE_GENERATOR%" .. ^
-    -DOpenCV_DIR=C:/opencv/build ^
-    -DONNXRuntime_DIR=C:/onnxruntime/lib/cmake/ONNXRuntime ^
+cmake -G "%CMAKE_GENERATOR%" -A x64 .. ^
+    -DOpenCV_DIR=C:/opencv/build/x64/vc16/lib ^
+    -DONNXRUNTIME_INCLUDE_DIR=C:/onnxruntime/include ^
+    -DONNXRUNTIME_LIB_DIR=C:/onnxruntime/lib ^
     -DCMAKE_INSTALL_PREFIX=../dist
 
 if %errorlevel% neq 0 (
     echo CMake configuration failed!
+    echo.
+    echo Please make sure:
+    echo 1. OpenCV is installed at C:\opencv\build\x64\vc16\lib
+    echo 2. ONNX Runtime is installed at C:\onnxruntime
     pause
     exit /b 1
 )
