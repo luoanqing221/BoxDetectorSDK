@@ -14,21 +14,17 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Download OpenCV
-      run: Invoke-WebRequest -Uri "https://github.com/opencv/opencv/releases/download/4.9.0/opencv-4.9.0-windows.exe" -OutFile "opencv.exe" -UseBasicParsing
+    - name: Install vcpkg
+      run: |
+        git clone https://github.com/microsoft/vcpkg.git
+        .\vcpkg\bootstrap-vcpkg.bat
 
-    - name: Install OpenCV
-      run: Start-Process -FilePath "opencv.exe" -ArgumentList "-oC:\opencv -y" -Wait
+    - name: Install OpenCV and ONNX Runtime
+      run: .\vcpkg\vcpkg install opencv4:x64-windows onnxruntime:x64-windows
 
-    - name: Download ONNX Runtime
-      run: Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v1.17.0/onnxruntime-win-x64-1.17.0.zip" -OutFile "onnxruntime.zip" -UseBasicParsing
-
-    - name: Extract ONNX Runtime
-      run: Expand-Archive -Path "onnxruntime.zip" -DestinationPath "C:\" -Force
-
-    - name: Configure CMake
+    - name: Configure CMake with vcpkg
       shell: cmd
-      run: mkdir build && cd build && cmake -G "Visual Studio 17 2022" -A x64 -DOpenCV_DIR=C:\opencv\build\x64\vc16\lib -DONNXRuntime_DIR=C:\onnxruntime-win-x64-1.17.0\lib\cmake\onnxruntime ..
+      run: mkdir build && cd build && cmake -G "Visual Studio 17 2022" -A x64 -DCMAKE_TOOLCHAIN_FILE=..\vcpkg\scripts\buildsystems\vcpkg.cmake ..
 
     - name: Build
       shell: cmd
@@ -36,7 +32,13 @@ jobs:
 
     - name: Prepare Distribution
       shell: cmd
-      run: mkdir dist\bin && mkdir dist\lib && mkdir dist\include && copy build\Release\BoxDetectorSDK.dll dist\bin\ && copy build\Release\BoxDetectorSDK.lib dist\lib\ && copy BoxDetectorSDK.h dist\include\ && copy C:\opencv\build\x64\vc16\bin\opencv_world490.dll dist\bin\ && copy C:\onnxruntime-win-x64-1.17.0\lib\onnxruntime.dll dist\bin\ && copy BoxDetectorSDK.cs dist\ && copy README.md dist\
+      run: mkdir dist\bin && mkdir dist\lib && mkdir dist\include && copy build\Release\BoxDetectorSDK.dll dist\bin\ && copy build\Release\BoxDetectorSDK.lib dist\lib\ && copy BoxDetectorSDK.h dist\include\ && copy BoxDetectorSDK.cs dist\ && copy README.md dist\
+
+    - name: Copy vcpkg dependencies
+      run: |
+        $vcpkgDir = (Get-Command vcpkg).Source | Split-Path -Parent
+        Copy-Item "$vcpkgDir\installed\x64-windows\bin\opencv_world490.dll" dist\bin\
+        Copy-Item "$vcpkgDir\installed\x64-windows\bin\onnxruntime.dll" dist\bin\
 
     - name: Create Archive
       run: Compress-Archive -Path dist\* -DestinationPath BoxDetectorSDK-Windows-x64.zip

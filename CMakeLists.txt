@@ -44,17 +44,3 @@ add_executable(BoxDetectorExample
 target_link_libraries(BoxDetectorExample PRIVATE
     BoxDetectorSDK
 )
-
-install(TARGETS BoxDetectorSDK
-    LIBRARY DESTINATION lib
-    ARCHIVE DESTINATION lib
-    RUNTIME DESTINATION bin
-)
-
-install(FILES BoxDetectorSDK.h DESTINATION include)
-
-set(CPACK_GENERATOR "ZIP")
-set(CPACK_PACKAGE_NAME "BoxDetectorSDK")
-set(CPACK_PACKAGE_VERSION "1.0.0")
-set(CPACK_PACKAGE_DESCRIPTION "Box Detection SDK using ONNX Runtime")
-include(CPack)
