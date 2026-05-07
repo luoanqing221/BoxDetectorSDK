@@ -25,7 +25,7 @@ jobs:
         restore-keys: |
           dependencies-${{ runner.os }}-
 
-    - name: Download OpenCV prebuilt
+    - name: Download and install OpenCV
       run: |
         $targetPath = "C:\opencv\build\x64\vc16\bin\opencv_world490.dll"
         if (-not (Test-Path -Path $targetPath)) {
@@ -34,29 +34,23 @@ jobs:
           $output = "C:\temp\opencv.exe"
           New-Item -ItemType Directory -Path "C:\temp" -Force | Out-Null
           
-          $attempts = 3
-          for ($i = 1; $i -le $attempts; $i++) {
-            try {
-              Invoke-WebRequest -Uri $url -OutFile $output -UseBasicParsing -ErrorAction Stop
-              Write-Host "Download successful on attempt $i"
-              break
-            } catch {
-              Write-Host "Download attempt $i failed: $_"
-              if ($i -eq $attempts) {
-                throw "Failed to download OpenCV after $attempts attempts"
-              }
-              Start-Sleep -Seconds 5
-            }
-          }
+          Invoke-WebRequest -Uri $url -OutFile $output -UseBasicParsing
           
           Write-Host "Installing OpenCV..."
           Start-Process -FilePath $output -ArgumentList "-oC:\opencv -y" -Wait -NoNewWindow
-          Remove-Item -Path $output -Force
+          
+          Write-Host "OpenCV installation complete, checking files..."
+          Get-ChildItem -Path "C:\opencv" -Recurse -Filter "*.dll" | Select-Object FullName | Select-Object -First 20
         } else {
-          Write-Host "OpenCV already cached, skipping download"
+          Write-Host "OpenCV already cached"
         }
 
-    - name: Download ONNX Runtime prebuilt
+    - name: Locate OpenCV path
+      run: |
+        Write-Host "Searching for opencv_world490.dll..."
+        Get-ChildItem -Path "C:\" -Recurse -Filter "opencv_world490.dll" -ErrorAction SilentlyContinue | Select-Object FullName
+
+    - name: Download and extract ONNX Runtime
       run: |
         $targetPath = "C:\onnxruntime\lib\onnxruntime.dll"
         if (-not (Test-Path -Path $targetPath)) {
@@ -65,20 +59,7 @@ jobs:
           $output = "C:\temp\onnxruntime.zip"
           New-Item -ItemType Directory -Path "C:\temp" -Force | Out-Null
           
-          $attempts = 3
-          for ($i = 1; $i -le $attempts; $i++) {
-            try {
-              Invoke-WebRequest -Uri $url -OutFile $output -UseBasicParsing -ErrorAction Stop
-              Write-Host "Download successful on attempt $i"
-              break
-            } catch {
-              Write-Host "Download attempt $i failed: $_"
-              if ($i -eq $attempts) {
-                throw "Failed to download ONNX Runtime after $attempts attempts"
-              }
-              Start-Sleep -Seconds 5
-            }
-          }
+          Invoke-WebRequest -Uri $url -OutFile $output -UseBasicParsing
           
           Write-Host "Extracting ONNX Runtime..."
           Expand-Archive -Path $output -DestinationPath "C:\" -Force
@@ -86,21 +67,24 @@ jobs:
             Remove-Item -Path "C:\onnxruntime" -Recurse -Force -ErrorAction SilentlyContinue
             Rename-Item -Path "C:\onnxruntime-win-x64-1.17.0" -NewName "onnxruntime" -Force
           }
-          Remove-Item -Path $output -Force
         } else {
-          Write-Host "ONNX Runtime already cached, skipping download"
+          Write-Host "ONNX Runtime already cached"
         }
-
-    - name: Verify dependencies
-      run: |
-        Write-Host "=== OpenCV ==="
-        Get-ChildItem -Path "C:\opencv\build\x64\vc16\bin\" -Filter "*.dll" | Select-Object Name
-        Write-Host "`n=== ONNX Runtime ==="
-        Get-ChildItem -Path "C:\onnxruntime\lib\" -Filter "*.dll" | Select-Object Name
 
     - name: Configure CMake
       shell: cmd
-      run: mkdir build && cd build && cmake -G "Visual Studio 17 2022" -A x64 -DOpenCV_DIR=C:\opencv\build\x64\vc16\lib -DONNXRuntime_DIR=C:\onnxruntime\lib\cmake\onnxruntime -DCMAKE_INCLUDE_PATH=C:\onnxruntime\include ..
+      run: |
+        set OPENCV_PATH=C:\opencv\build\x64\vc16\lib
+        if not exist "%OPENCV_PATH%" (
+          for /r C:\opencv %%f in (*opencv_world490.dll) do (
+            set OPENCV_PATH=%%~dpf
+            goto :found
+          )
+        )
+        :found
+        echo Using OpenCV path: %OPENCV_PATH%
+        mkdir build && cd build
+        cmake -G "Visual Studio 17 2022" -A x64 -DOpenCV_DIR=%OPENCV_PATH% -DONNXRuntime_DIR=C:\onnxruntime\lib\cmake\onnxruntime -DCMAKE_INCLUDE_PATH=C:\onnxruntime\include ..
 
     - name: Build
       shell: cmd
@@ -112,7 +96,7 @@ jobs:
 
     - name: Copy dependencies
       run: |
-        Copy-Item "C:\opencv\build\x64\vc16\bin\opencv_world490.dll" dist\bin\
+        Get-ChildItem -Path "C:\opencv" -Recurse -Filter "opencv_world490.dll" -ErrorAction SilentlyContinue | Select-Object -First 1 | ForEach-Object { Copy-Item $_.FullName -Destination "dist\bin\" }
         Copy-Item "C:\onnxruntime\lib\onnxruntime.dll" dist\bin\
 
     - name: Create Archive
