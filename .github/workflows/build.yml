@@ -35,23 +35,21 @@ jobs:
         }
         Start-Process -FilePath "opencv.exe" -ArgumentList "-oC:\opencv -y" -Wait
 
-    - name: Download ONNX Runtime prebuilt from official source
+    - name: Download ONNX Runtime prebuilt
       if: !exists('C:/onnxruntime/lib/onnxruntime.dll')
       run: |
-        try {
-          Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v1.17.0/onnxruntime-win-x64-1.17.0.zip" -OutFile "onnxruntime.zip" -UseBasicParsing
-        } catch {
-          Write-Host "Primary source failed, trying backup..."
-          Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v1.17.0/onnxruntime-win-x64-1.17.0.zip" -OutFile "onnxruntime.zip" -UseBasicParsing
-        }
+        Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v1.17.0/onnxruntime-win-x64-1.17.0.zip" -OutFile "onnxruntime.zip" -UseBasicParsing
         Expand-Archive -Path "onnxruntime.zip" -DestinationPath "C:\" -Force
         if (Test-Path "C:\onnxruntime-win-x64-1.17.0") {
           Rename-Item -Path "C:\onnxruntime-win-x64-1.17.0" -NewName "onnxruntime" -Force
         }
 
+    - name: List ONNX Runtime files
+      run: Get-ChildItem -Path "C:\onnxruntime" -Recurse -Filter "*.h" | Select-Object FullName | Select-Object -First 20
+
     - name: Configure CMake
       shell: cmd
-      run: mkdir build && cd build && cmake -G "Visual Studio 17 2022" -A x64 -DOpenCV_DIR=C:\opencv\build\x64\vc16\lib -DONNXRuntime_DIR=C:\onnxruntime\lib\cmake\onnxruntime ..
+      run: mkdir build && cd build && cmake -G "Visual Studio 17 2022" -A x64 -DOpenCV_DIR=C:\opencv\build\x64\vc16\lib -DONNXRuntime_DIR=C:\onnxruntime\lib\cmake\onnxruntime -DCMAKE_INCLUDE_PATH=C:\onnxruntime\include ..
 
     - name: Build
       shell: cmd
