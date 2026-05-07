@@ -27,29 +27,76 @@ jobs:
 
     - name: Download OpenCV prebuilt
       run: |
-        if (-not (Test-Path -Path "C:\opencv\build\x64\vc16\bin\opencv_world490.dll")) {
-          try {
-            Invoke-WebRequest -Uri "https://mirrors.huaweicloud.com/opencv/4.9.0/opencv-4.9.0-windows.exe" -OutFile "opencv.exe" -UseBasicParsing
-          } catch {
-            Write-Host "Huawei mirror failed, trying official source..."
-            Invoke-WebRequest -Uri "https://github.com/opencv/opencv/releases/download/4.9.0/opencv-4.9.0-windows.exe" -OutFile "opencv.exe" -UseBasicParsing
+        $targetPath = "C:\opencv\build\x64\vc16\bin\opencv_world490.dll"
+        if (-not (Test-Path -Path $targetPath)) {
+          Write-Host "Downloading OpenCV..."
+          $url = "https://github.com/opencv/opencv/releases/download/4.9.0/opencv-4.9.0-windows.exe"
+          $output = "C:\temp\opencv.exe"
+          New-Item -ItemType Directory -Path "C:\temp" -Force | Out-Null
+          
+          $attempts = 3
+          for ($i = 1; $i -le $attempts; $i++) {
+            try {
+              Invoke-WebRequest -Uri $url -OutFile $output -UseBasicParsing -ErrorAction Stop
+              Write-Host "Download successful on attempt $i"
+              break
+            } catch {
+              Write-Host "Download attempt $i failed: $_"
+              if ($i -eq $attempts) {
+                throw "Failed to download OpenCV after $attempts attempts"
+              }
+              Start-Sleep -Seconds 5
+            }
           }
-          Start-Process -FilePath "opencv.exe" -ArgumentList "-oC:\opencv -y" -Wait
+          
+          Write-Host "Installing OpenCV..."
+          Start-Process -FilePath $output -ArgumentList "-oC:\opencv -y" -Wait -NoNewWindow
+          Remove-Item -Path $output -Force
         } else {
           Write-Host "OpenCV already cached, skipping download"
         }
 
     - name: Download ONNX Runtime prebuilt
       run: |
-        if (-not (Test-Path -Path "C:\onnxruntime\lib\onnxruntime.dll")) {
-          Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v1.17.0/onnxruntime-win-x64-1.17.0.zip" -OutFile "onnxruntime.zip" -UseBasicParsing
-          Expand-Archive -Path "onnxruntime.zip" -DestinationPath "C:\" -Force
+        $targetPath = "C:\onnxruntime\lib\onnxruntime.dll"
+        if (-not (Test-Path -Path $targetPath)) {
+          Write-Host "Downloading ONNX Runtime..."
+          $url = "https://github.com/microsoft/onnxruntime/releases/download/v1.17.0/onnxruntime-win-x64-1.17.0.zip"
+          $output = "C:\temp\onnxruntime.zip"
+          New-Item -ItemType Directory -Path "C:\temp" -Force | Out-Null
+          
+          $attempts = 3
+          for ($i = 1; $i -le $attempts; $i++) {
+            try {
+              Invoke-WebRequest -Uri $url -OutFile $output -UseBasicParsing -ErrorAction Stop
+              Write-Host "Download successful on attempt $i"
+              break
+            } catch {
+              Write-Host "Download attempt $i failed: $_"
+              if ($i -eq $attempts) {
+                throw "Failed to download ONNX Runtime after $attempts attempts"
+              }
+              Start-Sleep -Seconds 5
+            }
+          }
+          
+          Write-Host "Extracting ONNX Runtime..."
+          Expand-Archive -Path $output -DestinationPath "C:\" -Force
           if (Test-Path "C:\onnxruntime-win-x64-1.17.0") {
+            Remove-Item -Path "C:\onnxruntime" -Recurse -Force -ErrorAction SilentlyContinue
             Rename-Item -Path "C:\onnxruntime-win-x64-1.17.0" -NewName "onnxruntime" -Force
           }
+          Remove-Item -Path $output -Force
         } else {
           Write-Host "ONNX Runtime already cached, skipping download"
         }
+
+    - name: Verify dependencies
+      run: |
+        Write-Host "=== OpenCV ==="
+        Get-ChildItem -Path "C:\opencv\build\x64\vc16\bin\" -Filter "*.dll" | Select-Object Name
+        Write-Host "`n=== ONNX Runtime ==="
+        Get-ChildItem -Path "C:\onnxruntime\lib\" -Filter "*.dll" | Select-Object Name
 
     - name: Configure CMake
       shell: cmd
