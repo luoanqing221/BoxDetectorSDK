@@ -16,6 +16,7 @@ jobs:
 
     - name: Cache dependencies
       uses: actions/cache@v4
+      id: cache-deps
       with:
         path: |
           C:\opencv
@@ -24,28 +25,31 @@ jobs:
         restore-keys: |
           dependencies-${{ runner.os }}-
 
-    - name: Download OpenCV prebuilt from Huawei Mirror
-      if: !exists('C:/opencv/build/x64/vc16/bin/opencv_world490.dll')
+    - name: Download OpenCV prebuilt
       run: |
-        try {
-          Invoke-WebRequest -Uri "https://mirrors.huaweicloud.com/opencv/4.9.0/opencv-4.9.0-windows.exe" -OutFile "opencv.exe" -UseBasicParsing
-        } catch {
-          Write-Host "Huawei mirror failed, trying official source..."
-          Invoke-WebRequest -Uri "https://github.com/opencv/opencv/releases/download/4.9.0/opencv-4.9.0-windows.exe" -OutFile "opencv.exe" -UseBasicParsing
+        if (-not (Test-Path -Path "C:\opencv\build\x64\vc16\bin\opencv_world490.dll")) {
+          try {
+            Invoke-WebRequest -Uri "https://mirrors.huaweicloud.com/opencv/4.9.0/opencv-4.9.0-windows.exe" -OutFile "opencv.exe" -UseBasicParsing
+          } catch {
+            Write-Host "Huawei mirror failed, trying official source..."
+            Invoke-WebRequest -Uri "https://github.com/opencv/opencv/releases/download/4.9.0/opencv-4.9.0-windows.exe" -OutFile "opencv.exe" -UseBasicParsing
+          }
+          Start-Process -FilePath "opencv.exe" -ArgumentList "-oC:\opencv -y" -Wait
+        } else {
+          Write-Host "OpenCV already cached, skipping download"
         }
-        Start-Process -FilePath "opencv.exe" -ArgumentList "-oC:\opencv -y" -Wait
 
     - name: Download ONNX Runtime prebuilt
-      if: !exists('C:/onnxruntime/lib/onnxruntime.dll')
       run: |
-        Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v1.17.0/onnxruntime-win-x64-1.17.0.zip" -OutFile "onnxruntime.zip" -UseBasicParsing
-        Expand-Archive -Path "onnxruntime.zip" -DestinationPath "C:\" -Force
-        if (Test-Path "C:\onnxruntime-win-x64-1.17.0") {
-          Rename-Item -Path "C:\onnxruntime-win-x64-1.17.0" -NewName "onnxruntime" -Force
+        if (-not (Test-Path -Path "C:\onnxruntime\lib\onnxruntime.dll")) {
+          Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v1.17.0/onnxruntime-win-x64-1.17.0.zip" -OutFile "onnxruntime.zip" -UseBasicParsing
+          Expand-Archive -Path "onnxruntime.zip" -DestinationPath "C:\" -Force
+          if (Test-Path "C:\onnxruntime-win-x64-1.17.0") {
+            Rename-Item -Path "C:\onnxruntime-win-x64-1.17.0" -NewName "onnxruntime" -Force
+          }
+        } else {
+          Write-Host "ONNX Runtime already cached, skipping download"
         }
-
-    - name: List ONNX Runtime files
-      run: Get-ChildItem -Path "C:\onnxruntime" -Recurse -Filter "*.h" | Select-Object FullName | Select-Object -First 20
 
     - name: Configure CMake
       shell: cmd
