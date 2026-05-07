@@ -14,26 +14,37 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Download OpenCV
+    - name: Download and Install OpenCV
       run: |
+        Write-Host "Downloading OpenCV..."
         Invoke-WebRequest -Uri "https://github.com/opencv/opencv/releases/download/4.9.0/opencv-4.9.0-windows.exe" -OutFile "opencv.exe" -UseBasicParsing
+        Write-Host "Installing OpenCV to C:\opencv..."
         Start-Process -FilePath "opencv.exe" -ArgumentList "-oC:\opencv -y" -Wait
+        Write-Host "OpenCV installed. Checking path..."
+        Get-ChildItem -Path "C:\opencv" -Recurse -Filter "OpenCVConfig.cmake" | Select-Object FullName
 
     - name: Download ONNX Runtime
       run: |
+        Write-Host "Downloading ONNX Runtime..."
         Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v1.17.0/onnxruntime-win-x64-gpu-1.17.0.zip" -OutFile "onnxruntime.zip" -UseBasicParsing
+        Write-Host "Extracting ONNX Runtime..."
         Expand-Archive -Path "onnxruntime.zip" -DestinationPath "C:\" -Force
+        Write-Host "ONNX Runtime extracted. Checking path..."
+        Get-ChildItem -Path "C:\onnxruntime-win-x64-gpu-1.17.0" -Recurse -Filter "*.cmake" | Select-Object FullName
 
     - name: Install CMake
       uses: lukka/get-cmake@latest
 
     - name: Configure CMake
       run: |
+        Write-Host "Creating build directory..."
         mkdir -p build
         cd build
+        Write-Host "Running CMake with correct paths..."
         cmake -G "Visual Studio 17 2022" -A x64 .. ^
           -DOpenCV_DIR="C:\opencv\build\x64\vc16\lib" ^
-          -DONNXRuntime_DIR="C:\onnxruntime-win-x64-gpu-1.17.0\lib\cmake\onnxruntime"
+          -DONNXRuntime_DIR="C:\onnxruntime-win-x64-gpu-1.17.0\lib\cmake\onnxruntime" ^
+          -DCMAKE_VERBOSE_MAKEFILE=ON
 
     - name: Build
       run: |
