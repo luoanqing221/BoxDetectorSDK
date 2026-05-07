@@ -14,77 +14,29 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Cache dependencies
-      uses: actions/cache@v4
-      id: cache-deps
-      with:
-        path: |
-          C:\opencv
-          C:\onnxruntime
-        key: dependencies-${{ runner.os }}-opencv490-onnx1170
-        restore-keys: |
-          dependencies-${{ runner.os }}-
+    - name: Install OpenCV using Chocolatey
+      run: choco install opencv -y
 
-    - name: Download and install OpenCV
-      run: |
-        $targetPath = "C:\opencv\build\x64\vc16\bin\opencv_world490.dll"
-        if (-not (Test-Path -Path $targetPath)) {
-          Write-Host "Downloading OpenCV..."
-          $url = "https://github.com/opencv/opencv/releases/download/4.9.0/opencv-4.9.0-windows.exe"
-          $output = "C:\temp\opencv.exe"
-          New-Item -ItemType Directory -Path "C:\temp" -Force | Out-Null
-          
-          Invoke-WebRequest -Uri $url -OutFile $output -UseBasicParsing
-          
-          Write-Host "Installing OpenCV..."
-          Start-Process -FilePath $output -ArgumentList "-oC:\opencv -y" -Wait -NoNewWindow
-          
-          Write-Host "OpenCV installation complete, checking files..."
-          Get-ChildItem -Path "C:\opencv" -Recurse -Filter "*.dll" | Select-Object FullName | Select-Object -First 20
-        } else {
-          Write-Host "OpenCV already cached"
-        }
+    - name: Install ONNX Runtime using Chocolatey
+      run: choco install onnxruntime -y
 
-    - name: Locate OpenCV path
+    - name: Find OpenCV path
       run: |
-        Write-Host "Searching for opencv_world490.dll..."
-        Get-ChildItem -Path "C:\" -Recurse -Filter "opencv_world490.dll" -ErrorAction SilentlyContinue | Select-Object FullName
+        Write-Host "Finding OpenCV..."
+        Get-ChildItem -Path "C:\ProgramData\chocolatey\lib\opencv" -Recurse -Filter "OpenCVConfig.cmake" | Select-Object FullName
 
-    - name: Download and extract ONNX Runtime
+    - name: Find ONNX Runtime path
       run: |
-        $targetPath = "C:\onnxruntime\lib\onnxruntime.dll"
-        if (-not (Test-Path -Path $targetPath)) {
-          Write-Host "Downloading ONNX Runtime..."
-          $url = "https://github.com/microsoft/onnxruntime/releases/download/v1.17.0/onnxruntime-win-x64-1.17.0.zip"
-          $output = "C:\temp\onnxruntime.zip"
-          New-Item -ItemType Directory -Path "C:\temp" -Force | Out-Null
-          
-          Invoke-WebRequest -Uri $url -OutFile $output -UseBasicParsing
-          
-          Write-Host "Extracting ONNX Runtime..."
-          Expand-Archive -Path $output -DestinationPath "C:\" -Force
-          if (Test-Path "C:\onnxruntime-win-x64-1.17.0") {
-            Remove-Item -Path "C:\onnxruntime" -Recurse -Force -ErrorAction SilentlyContinue
-            Rename-Item -Path "C:\onnxruntime-win-x64-1.17.0" -NewName "onnxruntime" -Force
-          }
-        } else {
-          Write-Host "ONNX Runtime already cached"
-        }
+        Write-Host "Finding ONNX Runtime..."
+        Get-ChildItem -Path "C:\ProgramData\chocolatey\lib\onnxruntime" -Recurse -Filter "onnxruntimeConfig.cmake" | Select-Object FullName
 
     - name: Configure CMake
       shell: cmd
       run: |
-        set OPENCV_PATH=C:\opencv\build\x64\vc16\lib
-        if not exist "%OPENCV_PATH%" (
-          for /r C:\opencv %%f in (*opencv_world490.dll) do (
-            set OPENCV_PATH=%%~dpf
-            goto :found
-          )
-        )
-        :found
-        echo Using OpenCV path: %OPENCV_PATH%
+        set OPENCV_DIR=C:\ProgramData\chocolatey\lib\opencv\tools\opencv\build\x64\vc16\lib
+        set ONNXRUNTIME_DIR=C:\ProgramData\chocolatey\lib\onnxruntime\tools\onnxruntime\lib\cmake\onnxruntime
         mkdir build && cd build
-        cmake -G "Visual Studio 17 2022" -A x64 -DOpenCV_DIR=%OPENCV_PATH% -DONNXRuntime_DIR=C:\onnxruntime\lib\cmake\onnxruntime -DCMAKE_INCLUDE_PATH=C:\onnxruntime\include ..
+        cmake -G "Visual Studio 17 2022" -A x64 -DOpenCV_DIR=%OPENCV_DIR% -DONNXRuntime_DIR=%ONNXRUNTIME_DIR% ..
 
     - name: Build
       shell: cmd
@@ -96,8 +48,8 @@ jobs:
 
     - name: Copy dependencies
       run: |
-        Get-ChildItem -Path "C:\opencv" -Recurse -Filter "opencv_world490.dll" -ErrorAction SilentlyContinue | Select-Object -First 1 | ForEach-Object { Copy-Item $_.FullName -Destination "dist\bin\" }
-        Copy-Item "C:\onnxruntime\lib\onnxruntime.dll" dist\bin\
+        Copy-Item "C:\ProgramData\chocolatey\lib\opencv\tools\opencv\build\x64\vc16\bin\opencv_world490.dll" dist\bin\
+        Copy-Item "C:\ProgramData\chocolatey\lib\onnxruntime\tools\onnxruntime\lib\onnxruntime.dll" dist\bin\
 
     - name: Create Archive
       run: Compress-Archive -Path dist\* -DestinationPath BoxDetectorSDK-Windows-x64.zip

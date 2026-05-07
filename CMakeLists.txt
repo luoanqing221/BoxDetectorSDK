@@ -11,14 +11,16 @@ else()
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
 endif()
 
-find_package(OpenCV REQUIRED)
+if(WIN32)
+    set(OpenCV_DIR "C:/opencv/build/x64/vc16/lib" CACHE PATH "OpenCV directory")
+    set(ONNXRuntime_DIR "C:/onnxruntime/lib/cmake/onnxruntime" CACHE PATH "ONNX Runtime directory")
+endif()
 
-set(ONNXRuntime_DIR "C:/onnxruntime/lib/cmake/onnxruntime" CACHE PATH "Path to ONNX Runtime cmake directory")
+find_package(OpenCV REQUIRED)
 find_package(ONNXRuntime REQUIRED)
 
 message(STATUS "OpenCV found: ${OpenCV_INCLUDE_DIRS}")
 message(STATUS "ONNX Runtime found: ${ONNXRuntime_INCLUDE_DIRS}")
-message(STATUS "ONNX Runtime libraries: ${ONNXRuntime_LIBRARIES}")
 
 if(WIN32)
     set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
@@ -33,7 +35,6 @@ add_library(BoxDetectorSDK SHARED
 target_include_directories(BoxDetectorSDK PRIVATE
     ${OpenCV_INCLUDE_DIRS}
     ${ONNXRuntime_INCLUDE_DIRS}
-    ${ONNXRuntime_INCLUDE_DIRS}/onnxruntime/core/session
 )
 
 target_link_libraries(BoxDetectorSDK PRIVATE
