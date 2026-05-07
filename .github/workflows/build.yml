@@ -14,34 +14,32 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Enable vcpkg binary caching
-      run: |
-        $env:VCPKG_BINARY_SOURCES="clear;x-gha,readwrite"
-
-    - name: Cache vcpkg
+    - name: Cache dependencies
       uses: actions/cache@v4
       with:
         path: |
-          vcpkg/downloads
-          vcpkg/installed
-          vcpkg/packages
-        key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'CMakeLists.txt') }}
+          C:\opencv
+          C:\onnxruntime
+        key: dependencies-${{ runner.os }}-opencv490-onnx1170
         restore-keys: |
-          vcpkg-${{ runner.os }}-
+          dependencies-${{ runner.os }}-
 
-    - name: Install vcpkg
+    - name: Download OpenCV prebuilt
+      if: !exists('C:/opencv/build/x64/vc16/bin/opencv_world490.dll')
       run: |
-        if (-not (Test-Path -Path "vcpkg\vcpkg.exe")) {
-          git clone https://github.com/microsoft/vcpkg.git
-          .\vcpkg\bootstrap-vcpkg.bat
-        }
+        Invoke-WebRequest -Uri "https://github.com/opencv/opencv/releases/download/4.9.0/opencv-4.9.0-windows.exe" -OutFile "opencv.exe" -UseBasicParsing
+        Start-Process -FilePath "opencv.exe" -ArgumentList "-oC:\opencv -y" -Wait
 
-    - name: Install OpenCV and ONNX Runtime
-      run: .\vcpkg\vcpkg install opencv4:x64-windows onnxruntime:x64-windows --binarysource=clear;files,/tmp/vcpkg-cache;nuget,GitHub
+    - name: Download ONNX Runtime prebuilt
+      if: !exists('C:/onnxruntime/lib/onnxruntime.dll')
+      run: |
+        Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v1.17.0/onnxruntime-win-x64-1.17.0.zip" -OutFile "onnxruntime.zip" -UseBasicParsing
+        Expand-Archive -Path "onnxruntime.zip" -DestinationPath "C:\" -Force
+        Rename-Item -Path "C:\onnxruntime-win-x64-1.17.0" -NewName "onnxruntime"
 
-    - name: Configure CMake with vcpkg
+    - name: Configure CMake
       shell: cmd
-      run: mkdir build && cd build && cmake -G "Visual Studio 17 2022" -A x64 -DCMAKE_TOOLCHAIN_FILE=..\vcpkg\scripts\buildsystems\vcpkg.cmake ..
+      run: mkdir build && cd build && cmake -G "Visual Studio 17 2022" -A x64 -DOpenCV_DIR=C:\opencv\build\x64\vc16\lib -DONNXRuntime_DIR=C:\onnxruntime\lib\cmake\onnxruntime ..
 
     - name: Build
       shell: cmd
@@ -51,10 +49,10 @@ jobs:
       shell: cmd
       run: mkdir dist\bin && mkdir dist\lib && mkdir dist\include && copy build\Release\BoxDetectorSDK.dll dist\bin\ && copy build\Release\BoxDetectorSDK.lib dist\lib\ && copy BoxDetectorSDK.h dist\include\ && copy BoxDetectorSDK.cs dist\ && copy README.md dist\
 
-    - name: Copy vcpkg dependencies
+    - name: Copy dependencies
       run: |
-        Copy-Item "vcpkg\installed\x64-windows\bin\opencv_world490.dll" dist\bin\
-        Copy-Item "vcpkg\installed\x64-windows\bin\onnxruntime.dll" dist\bin\
+        Copy-Item "C:\opencv\build\x64\vc16\bin\opencv_world490.dll" dist\bin\
+        Copy-Item "C:\onnxruntime\lib\onnxruntime.dll" dist\bin\
 
     - name: Create Archive
       run: Compress-Archive -Path dist\* -DestinationPath BoxDetectorSDK-Windows-x64.zip
