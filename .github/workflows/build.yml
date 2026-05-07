@@ -24,18 +24,30 @@ jobs:
         restore-keys: |
           dependencies-${{ runner.os }}-
 
-    - name: Download OpenCV prebuilt
+    - name: Download OpenCV prebuilt from Huawei Mirror
       if: !exists('C:/opencv/build/x64/vc16/bin/opencv_world490.dll')
       run: |
-        Invoke-WebRequest -Uri "https://github.com/opencv/opencv/releases/download/4.9.0/opencv-4.9.0-windows.exe" -OutFile "opencv.exe" -UseBasicParsing
+        try {
+          Invoke-WebRequest -Uri "https://mirrors.huaweicloud.com/opencv/4.9.0/opencv-4.9.0-windows.exe" -OutFile "opencv.exe" -UseBasicParsing
+        } catch {
+          Write-Host "Huawei mirror failed, trying official source..."
+          Invoke-WebRequest -Uri "https://github.com/opencv/opencv/releases/download/4.9.0/opencv-4.9.0-windows.exe" -OutFile "opencv.exe" -UseBasicParsing
+        }
         Start-Process -FilePath "opencv.exe" -ArgumentList "-oC:\opencv -y" -Wait
 
-    - name: Download ONNX Runtime prebuilt
+    - name: Download ONNX Runtime prebuilt from official source
       if: !exists('C:/onnxruntime/lib/onnxruntime.dll')
       run: |
-        Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v1.17.0/onnxruntime-win-x64-1.17.0.zip" -OutFile "onnxruntime.zip" -UseBasicParsing
+        try {
+          Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v1.17.0/onnxruntime-win-x64-1.17.0.zip" -OutFile "onnxruntime.zip" -UseBasicParsing
+        } catch {
+          Write-Host "Primary source failed, trying backup..."
+          Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v1.17.0/onnxruntime-win-x64-1.17.0.zip" -OutFile "onnxruntime.zip" -UseBasicParsing
+        }
         Expand-Archive -Path "onnxruntime.zip" -DestinationPath "C:\" -Force
-        Rename-Item -Path "C:\onnxruntime-win-x64-1.17.0" -NewName "onnxruntime"
+        if (Test-Path "C:\onnxruntime-win-x64-1.17.0") {
+          Rename-Item -Path "C:\onnxruntime-win-x64-1.17.0" -NewName "onnxruntime" -Force
+        }
 
     - name: Configure CMake
       shell: cmd
