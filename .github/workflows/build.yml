@@ -1,0 +1,81 @@
+name: Build Windows DLL
+
+on:
+  push:
+    branches: [ main ]
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Install Python Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install ultralytics onnx opencv-python-headless
+
+    - name: Download OpenCV
+      run: |
+        Invoke-WebRequest -Uri "https://github.com/opencv/opencv/releases/download/4.9.0/opencv-4.9.0-windows.exe" -OutFile "opencv.exe"
+        Start-Process -FilePath "opencv.exe" -ArgumentList "-oC:\opencv -y" -Wait
+
+    - name: Download ONNX Runtime
+      run: |
+        Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v1.17.0/onnxruntime-win-x64-1.17.0.zip" -OutFile "onnxruntime.zip"
+        Expand-Archive -Path "onnxruntime.zip" -DestinationPath "C:\"
+
+    - name: Configure CMake
+      run: |
+        mkdir build
+        cd build
+        cmake -G "Visual Studio 17 2022" -A x64 .. `
+          -DOpenCV_DIR="C:/opencv/build/x64/vc16/lib" `
+          -DONNXRuntime_DIR="C:/onnxruntime-win-x64-1.17.0/lib/cmake/onnxruntime"
+
+    - name: Build
+      run: |
+        cd build
+        cmake --build . --config Release
+
+    - name: Prepare Distribution
+      run: |
+        mkdir -p dist/bin
+        mkdir -p dist/lib
+        mkdir -p dist/include
+        
+        Copy-Item build/Release/BoxDetectorSDK.dll dist/bin/
+        Copy-Item build/Release/BoxDetectorSDK.lib dist/lib/
+        Copy-Item BoxDetectorSDK.h dist/include/
+        Copy-Item C:/opencv/build/x64/vc16/bin/opencv_world490.dll dist/bin/
+        Copy-Item C:/onnxruntime-win-x64-1.17.0/lib/onnxruntime.dll dist/bin/
+        Copy-Item dist/README.md dist/
+        Copy-Item dist/BoxDetectorSDK.cs dist/
+
+    - name: Create Archive
+      run: |
+        cd dist
+        Compress-Archive -Path * -DestinationPath ../BoxDetectorSDK-Windows-x64.zip
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: BoxDetectorSDK-Windows-x64
+        path: BoxDetectorSDK-Windows-x64.zip
+
+    - name: Create Release
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: BoxDetectorSDK-Windows-x64.zip
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
