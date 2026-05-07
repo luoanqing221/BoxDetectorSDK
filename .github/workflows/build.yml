@@ -24,14 +24,11 @@ jobs:
         Invoke-WebRequest -Uri "https://github.com/opencv/opencv/releases/download/4.9.0/opencv-4.9.0-windows.exe" -OutFile "C:\deps\opencv.exe" -UseBasicParsing
         Write-Host "Installing OpenCV..."
         Start-Process -FilePath "C:\deps\opencv.exe" -ArgumentList "-oC:\deps\opencv -y" -Wait -NoNewWindow
-        
-        Write-Host "OpenCV installed, listing files..."
-        Get-ChildItem -Path "C:\deps\opencv" -Recurse | Select-Object FullName | Select-Object -First 30
 
     - name: Find OpenCV config file
       id: find_opencv
       run: |
-        $configFiles = Get-ChildItem -Path "C:\deps\opencv" -Recurse -Filter "OpenCVConfig.cmake"
+        $configFiles = Get-ChildItem -Path "C:\deps\opencv" -Recurse -Filter "*Config.cmake" | Where-Object { $_.Name -match "^OpenCV" }
         if ($configFiles) {
           $path = Split-Path -Path $configFiles[0].FullName -Parent
           Write-Host "Found OpenCV config at: $path"
@@ -48,19 +45,19 @@ jobs:
         Write-Host "Extracting ONNX Runtime..."
         Expand-Archive -Path "C:\deps\onnxruntime.zip" -DestinationPath "C:\deps" -Force
         
-        Write-Host "ONNX Runtime extracted, listing files..."
-        Get-ChildItem -Path "C:\deps" -Recurse -Filter "*onnxruntime*" | Select-Object FullName | Select-Object -First 20
+        Write-Host "ONNX Runtime files:"
+        Get-ChildItem -Path "C:\deps" -Recurse | Select-Object FullName | Select-Object -First 30
 
     - name: Find ONNX Runtime config file
       id: find_onnx
       run: |
-        $configFiles = Get-ChildItem -Path "C:\deps" -Recurse -Filter "onnxruntimeConfig.cmake"
+        $configFiles = Get-ChildItem -Path "C:\deps" -Recurse -Filter "*.cmake" | Where-Object { $_.Name -match "onnxruntime" }
         if ($configFiles) {
           $path = Split-Path -Path $configFiles[0].FullName -Parent
           Write-Host "Found ONNX Runtime config at: $path"
           Write-Output "::set-output name=onnx_dir::$path"
         } else {
-          Write-Host "ONNX Runtime config not found!"
+          Write-Host "ONNX Runtime cmake files not found!"
           exit 1
         }
 
