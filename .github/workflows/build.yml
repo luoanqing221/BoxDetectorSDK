@@ -25,49 +25,25 @@ jobs:
         Write-Host "Installing OpenCV..."
         Start-Process -FilePath "C:\deps\opencv.exe" -ArgumentList "-oC:\deps\opencv -y" -Wait -NoNewWindow
 
-    - name: Find OpenCV config file
-      id: find_opencv
-      run: |
-        $configFiles = Get-ChildItem -Path "C:\deps\opencv" -Recurse -Filter "*Config.cmake" | Where-Object { $_.Name -match "^OpenCV" }
-        if ($configFiles) {
-          $path = Split-Path -Path $configFiles[0].FullName -Parent
-          Write-Host "Found OpenCV config at: $path"
-          Write-Output "::set-output name=opencv_dir::$path"
-        } else {
-          Write-Host "OpenCV config not found!"
-          exit 1
-        }
-
     - name: Download and extract ONNX Runtime
       run: |
         Write-Host "Downloading ONNX Runtime..."
         Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v1.17.0/onnxruntime-win-x64-1.17.0.zip" -OutFile "C:\deps\onnxruntime.zip" -UseBasicParsing
         Write-Host "Extracting ONNX Runtime..."
         Expand-Archive -Path "C:\deps\onnxruntime.zip" -DestinationPath "C:\deps" -Force
-        
-        Write-Host "ONNX Runtime files:"
-        Get-ChildItem -Path "C:\deps" -Recurse | Select-Object FullName | Select-Object -First 30
 
-    - name: Find ONNX Runtime config file
-      id: find_onnx
+    - name: Verify files
       run: |
-        $configFiles = Get-ChildItem -Path "C:\deps" -Recurse -Filter "*.cmake" | Where-Object { $_.Name -match "onnxruntime" }
-        if ($configFiles) {
-          $path = Split-Path -Path $configFiles[0].FullName -Parent
-          Write-Host "Found ONNX Runtime config at: $path"
-          Write-Output "::set-output name=onnx_dir::$path"
-        } else {
-          Write-Host "ONNX Runtime cmake files not found!"
-          exit 1
-        }
+        Write-Host "=== OpenCV files ==="
+        Get-ChildItem -Path "C:\deps\opencv\build\x64" -Recurse | Select-Object FullName | Select-Object -First 10
+        Write-Host "`n=== ONNX Runtime files ==="
+        Get-ChildItem -Path "C:\deps\onnxruntime-win-x64-1.17.0" | Select-Object FullName
 
     - name: Configure CMake
       shell: cmd
       run: |
-        echo Using OpenCV dir: ${{ steps.find_opencv.outputs.opencv_dir }}
-        echo Using ONNX dir: ${{ steps.find_onnx.outputs.onnx_dir }}
         mkdir build && cd build
-        cmake -G "Visual Studio 17 2022" -A x64 -DOpenCV_DIR=${{ steps.find_opencv.outputs.opencv_dir }} -DONNXRuntime_DIR=${{ steps.find_onnx.outputs.onnx_dir }} ..
+        cmake -G "Visual Studio 17 2022" -A x64 -DOpenCV_DIR=C:\deps\opencv\build\x64\vc16\lib -DONNXRUNTIME_INCLUDE_DIR=C:\deps\onnxruntime-win-x64-1.17.0\include -DONNXRUNTIME_LIB_DIR=C:\deps\onnxruntime-win-x64-1.17.0\lib ..
 
     - name: Build
       shell: cmd
@@ -79,8 +55,8 @@ jobs:
 
     - name: Copy dependencies
       run: |
-        Get-ChildItem -Path "C:\deps\opencv" -Recurse -Filter "opencv_world490.dll" | Select-Object -First 1 | ForEach-Object { Copy-Item $_.FullName -Destination "dist\bin\" }
-        Get-ChildItem -Path "C:\deps" -Recurse -Filter "onnxruntime.dll" | Select-Object -First 1 | ForEach-Object { Copy-Item $_.FullName -Destination "dist\bin\" }
+        Copy-Item "C:\deps\opencv\build\x64\vc16\bin\opencv_world490.dll" dist\bin\
+        Copy-Item "C:\deps\onnxruntime-win-x64-1.17.0\lib\onnxruntime.dll" dist\bin\
 
     - name: Create Archive
       run: Compress-Archive -Path dist\* -DestinationPath BoxDetectorSDK-Windows-x64.zip
